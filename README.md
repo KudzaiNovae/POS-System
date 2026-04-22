@@ -97,3 +97,4 @@ Every JPA entity carries a `tenant_id`. `TenantContext` is hydrated from the JWT
 ## License
 
 Proprietary. © TillPro.
+# POS-System
