@@ -1,0 +1,87 @@
+# CI for the TillPro monorepo.
+#
+# Two parallel jobs:
+#   1. backend  — Maven verify on JDK 17 against an ephemeral Postgres
+#   2. mobile   — flutter analyze + test (build artifacts are produced
+#                  for tagged releases only, see release.yml)
+
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend (Spring Boot)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: tillpro_test
+          POSTGRES_USER: tillpro
+          POSTGRES_PASSWORD: tillpro
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U tillpro -d tillpro_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: Verify
+        working-directory: backend
+        env:
+          DB_URL: jdbc:postgresql://localhost:5432/tillpro_test
+          DB_USER: tillpro
+          DB_PASSWORD: tillpro
+          JWT_SECRET: ci-secret-not-for-production
+        run: ./mvnw -B verify
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-surefire-reports
+          path: backend/target/surefire-reports
+          if-no-files-found: ignore
+
+  mobile:
+    name: Mobile (Flutter)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Pub get
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze --no-fatal-warnings --no-fatal-infos
+
+      - name: Test
+        run: flutter test --reporter expanded
