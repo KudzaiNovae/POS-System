@@ -69,6 +69,38 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   int _outboxCount = 0;
 
   bool _saving = false;
+  late _SettingsDraft _savedDraft;
+
+  String? _clean(String? value) {
+    final v = value?.trim() ?? '';
+    return v.isEmpty ? null : v;
+  }
+
+  _SettingsDraft get _currentDraft => _SettingsDraft(
+        shopName: _clean(_shopName.text),
+        shopAddress: _clean(_shopAddress.text),
+        shopPhone: _clean(_shopPhone.text),
+        ownerEmail: _clean(_ownerEmail.text),
+        tin: _clean(_tin.text),
+        vatNumber: _clean(_vatNumber.text),
+        fiscalDeviceId: _clean(_fiscalDeviceId.text),
+        currency: _currency,
+        countryCode: _countryCode,
+        locale: _locale,
+        autoPrint: _autoPrint,
+        showPrintDialog: _showPrintDialog,
+        paperWidth: _paperWidth,
+        fontSize: _fontSize,
+        printQr: _printQr,
+        printBarcode: _printBarcode,
+      );
+
+  bool get _hasChanges => _currentDraft != _savedDraft;
+
+  void _onEdited() {
+    if (!mounted) return;
+    setState(() {});
+  }
 
   @override
   void initState() {
@@ -81,6 +113,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     _vatNumber = TextEditingController(text: LocalDb.vatNumber ?? '');
     _fiscalDeviceId =
         TextEditingController(text: LocalDb.fiscalDeviceId ?? '');
+    _shopName.addListener(_onEdited);
+    _shopAddress.addListener(_onEdited);
+    _shopPhone.addListener(_onEdited);
+    _ownerEmail.addListener(_onEdited);
+    _tin.addListener(_onEdited);
+    _vatNumber.addListener(_onEdited);
+    _fiscalDeviceId.addListener(_onEdited);
 
     _currency = LocalDb.currency;
     _countryCode = LocalDb.countryCode;
@@ -94,6 +133,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     _fontSize = (meta.get('fontSize', defaultValue: 1) as num).toInt();
     _printQr = meta.get('printQr', defaultValue: true) as bool;
     _printBarcode = meta.get('printBarcode', defaultValue: false) as bool;
+    _savedDraft = _currentDraft;
 
     _loadAboutAndSync();
   }
@@ -152,6 +192,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       await meta.put('fontSize', _fontSize);
       await meta.put('printQr', _printQr);
       await meta.put('printBarcode', _printBarcode);
+      _savedDraft = _currentDraft;
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -167,59 +208,96 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
   }
 
+  Future<bool> _confirmDiscardIfDirty() async {
+    if (!_hasChanges) return true;
+    final discard = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Discard unsaved changes?'),
+        content: const Text(
+            'You have unsaved edits in Settings. Save first or discard your changes.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Keep editing')),
+          FilledButton.tonal(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Discard')),
+        ],
+      ),
+    );
+    return discard == true;
+  }
+
   @override
   Widget build(BuildContext context) {
     final isConnected = ref.watch(printerConnectedProvider);
     final selectedPrinter = ref.watch(selectedPrinterProvider);
     final auth = ref.watch(authControllerProvider);
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('Settings',
-            style: GoogleFonts.outfit(fontWeight: FontWeight.w600)),
-        centerTitle: true,
-        actions: [
-          TextButton.icon(
-            onPressed: _saving ? null : _save,
-            icon: _saving
-                ? const SizedBox(
-                    width: 14,
-                    height: 14,
-                    child: CircularProgressIndicator(strokeWidth: 2))
-                : const Icon(Icons.save_outlined, size: 18),
-            label: const Text('Save'),
-          ),
-          const SizedBox(width: 8),
-        ],
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(AppSpacing.lg),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _SubscriptionCard(
-              tier: auth.tier,
-              onUpgrade: () => _showUpgradeSheet(context, auth.tier),
+    return WillPopScope(
+      onWillPop: _confirmDiscardIfDirty,
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text('Settings',
+              style: GoogleFonts.outfit(fontWeight: FontWeight.w600)),
+          centerTitle: true,
+          actions: [
+            if (_hasChanges)
+              Padding(
+                padding: const EdgeInsets.only(right: 6),
+                child: Center(
+                  child: Text(
+                    'Unsaved',
+                    style: AppTypography.labelSmall(
+                      color: AppColors.warning,
+                      weight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ),
+            TextButton.icon(
+              onPressed: _saving || !_hasChanges ? null : _save,
+              icon: _saving
+                  ? const SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Icon(Icons.save_outlined, size: 18),
+              label: const Text('Save'),
             ),
-            const SizedBox(height: AppSpacing.lg),
-            _businessToolsSection(),
-            const SizedBox(height: AppSpacing.lg),
-            _shopProfileSection(),
-            const SizedBox(height: AppSpacing.lg),
-            _taxSection(),
-            const SizedBox(height: AppSpacing.lg),
-            _regionalSection(),
-            const SizedBox(height: AppSpacing.lg),
-            _printerSection(isConnected, selectedPrinter),
-            const SizedBox(height: AppSpacing.lg),
-            _syncSection(),
-            const SizedBox(height: AppSpacing.lg),
-            _dataSection(),
-            const SizedBox(height: AppSpacing.lg),
-            _accountSection(),
-            const SizedBox(height: AppSpacing.lg),
-            _aboutSection(),
+            const SizedBox(width: 8),
           ],
+        ),
+        body: SingleChildScrollView(
+          padding: const EdgeInsets.all(AppSpacing.lg),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _SubscriptionCard(
+                tier: auth.tier,
+                onUpgrade: () => _showUpgradeSheet(context, auth.tier),
+              ),
+              const SizedBox(height: AppSpacing.lg),
+              _businessToolsSection(),
+              const SizedBox(height: AppSpacing.lg),
+              _shopProfileSection(),
+              const SizedBox(height: AppSpacing.lg),
+              _taxSection(),
+              const SizedBox(height: AppSpacing.lg),
+              _regionalSection(),
+              const SizedBox(height: AppSpacing.lg),
+              _printerSection(isConnected, selectedPrinter),
+              const SizedBox(height: AppSpacing.lg),
+              _syncSection(),
+              const SizedBox(height: AppSpacing.lg),
+              _dataSection(),
+              const SizedBox(height: AppSpacing.lg),
+              _accountSection(),
+              const SizedBox(height: AppSpacing.lg),
+              _aboutSection(),
+            ],
+          ),
         ),
       ),
     );
@@ -1127,4 +1205,84 @@ class _UpgradeSheetState extends ConsumerState<_UpgradeSheet> {
       ),
     );
   }
+}
+
+class _SettingsDraft {
+  const _SettingsDraft({
+    required this.shopName,
+    required this.shopAddress,
+    required this.shopPhone,
+    required this.ownerEmail,
+    required this.tin,
+    required this.vatNumber,
+    required this.fiscalDeviceId,
+    required this.currency,
+    required this.countryCode,
+    required this.locale,
+    required this.autoPrint,
+    required this.showPrintDialog,
+    required this.paperWidth,
+    required this.fontSize,
+    required this.printQr,
+    required this.printBarcode,
+  });
+
+  final String? shopName;
+  final String? shopAddress;
+  final String? shopPhone;
+  final String? ownerEmail;
+  final String? tin;
+  final String? vatNumber;
+  final String? fiscalDeviceId;
+  final String currency;
+  final String countryCode;
+  final String locale;
+  final bool autoPrint;
+  final bool showPrintDialog;
+  final int paperWidth;
+  final int fontSize;
+  final bool printQr;
+  final bool printBarcode;
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    return other is _SettingsDraft &&
+        other.shopName == shopName &&
+        other.shopAddress == shopAddress &&
+        other.shopPhone == shopPhone &&
+        other.ownerEmail == ownerEmail &&
+        other.tin == tin &&
+        other.vatNumber == vatNumber &&
+        other.fiscalDeviceId == fiscalDeviceId &&
+        other.currency == currency &&
+        other.countryCode == countryCode &&
+        other.locale == locale &&
+        other.autoPrint == autoPrint &&
+        other.showPrintDialog == showPrintDialog &&
+        other.paperWidth == paperWidth &&
+        other.fontSize == fontSize &&
+        other.printQr == printQr &&
+        other.printBarcode == printBarcode;
+  }
+
+  @override
+  int get hashCode => Object.hash(
+        shopName,
+        shopAddress,
+        shopPhone,
+        ownerEmail,
+        tin,
+        vatNumber,
+        fiscalDeviceId,
+        currency,
+        countryCode,
+        locale,
+        autoPrint,
+        showPrintDialog,
+        paperWidth,
+        fontSize,
+        printQr,
+        printBarcode,
+      );
 }
